@@ -136,6 +136,15 @@ Please see those modules/websites for more information related to this module.
 - [Dist::Zilla::Plugin::Git::Commit](https://metacpan.org/pod/Dist%3A%3AZilla%3A%3APlugin%3A%3AGit%3A%3ACommit)
 - [CPAN::Changes::Spec](https://metacpan.org/pod/CPAN%3A%3AChanges%3A%3ASpec)
 
+# BUGS
+
+Please report any bugs or feature requests on the bugtracker website
+[https://github.com/Troglodyne-Internet-Widgets/Dist-Zilla-Plugin-Git-ChangelogFromTrailers/issues](https://github.com/Troglodyne-Internet-Widgets/Dist-Zilla-Plugin-Git-ChangelogFromTrailers/issues)
+
+When submitting a bug or request, please include a test-file or a
+patch to an existing test-file that illustrates the bug or desired
+feature.
+
 # AUTHORS
 
 Current Maintainers:
