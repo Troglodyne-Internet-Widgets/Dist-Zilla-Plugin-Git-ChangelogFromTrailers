@@ -145,12 +145,11 @@ has _git => (
     default  => sub { Git::Wrapper->new( $_[0]->zilla->root->stringify ) },
 );
 
-=method last_release_tag
-
-Return the name of the last release tag, or undef if there is none.
-
-=cut
-
+# The name of the last release tag: of the tags that are reachable from HEAD
+# and match version_regexp, the one with the highest version.
+# @returns Str|Undef  the name of the tag, or undef if no tag matches
+# @throws  dies with a Git::Wrapper::Exception when git tag fails
+# @example my $tag = $plugin->last_release_tag;
 sub last_release_tag {
     my ($self) = @_;
     my $regexp = $self->version_regexp;
@@ -168,13 +167,11 @@ sub last_release_tag {
     return first { $version_of{$_} == $highest } sort keys %version_of;
 }
 
-=method items
-
-Return the values of the trailers in the commits since the last release tag, in
-the order that L</Trailers> describes.
-
-=cut
-
+# The values of the trailers in the commits since the last release tag, in the
+# order that L</Trailers> describes.  Nothing when the repository has no commit.
+# @returns Str  the values, as a list
+# @throws  dies with a Git::Wrapper::Exception when git tag or git log fails
+# @example my @items = $plugin->items;
 sub items {
     my ($self) = @_;
     my $git = $self->_git;
@@ -194,12 +191,10 @@ sub items {
     return uniq grep { $_ ne q{} } map { s/^\s+//r =~ s/\s+\z//r } @values;
 }
 
-=method gather_files
-
-Add an empty F<Changes> to the build if the repository has none.
-
-=cut
-
+# Add an empty F<Changes> to the build if the repository has none, as
+# L<Dist::Zilla::Role::FileGatherer> asks.
+# @returns nothing
+# @example $plugin->gather_files;
 sub gather_files {
     my ($self) = @_;
     return if -e $self->zilla->root->child( $self->filename );
@@ -214,6 +209,15 @@ sub gather_files {
     return;
 }
 
+sub _changes_file {
+    my ($self) = @_;
+    my $name = $self->filename;
+    foreach my $file ( @{ $self->zilla->files } ) {
+        return $file if $file->name eq $name;
+    }
+    return;
+}
+
 sub _build_entry {
     my ($self) = @_;
     my @items = $self->items;
@@ -221,16 +225,14 @@ sub _build_entry {
     return join q{}, $self->section_header, "\n", map { "    - $_\n" } @items;
 }
 
-=method munge_files
-
-Add the entry to F<Changes> in the build.  If no commit has a trailer, leave
-it as it is.
-
-=cut
-
+# Add the entry to F<Changes> in the build, as L<Dist::Zilla::Role::FileMunger>
+# asks.  If no commit has a trailer, leave it as it is.
+# @returns nothing
+# @throws  by log_fatal when the build has no F<Changes>
+# @example $plugin->munge_files;
 sub munge_files {
     my ($self) = @_;
-    my $file = first { $_->name eq $self->filename } @{ $self->zilla->files };
+    my $file = $self->_changes_file;
     $self->log_fatal( [ 'failed to find %s in the distribution', $self->filename ] ) unless $file;
 
     my $entry = $self->_entry;
@@ -247,13 +249,12 @@ sub munge_files {
     return;
 }
 
-=method before_release
-
-Stop the release if no commit since the last release has a trailer, or if this
-plugin is below C<[Git::Commit]> in F<dist.ini>.
-
-=cut
-
+# Check that the release can write its entry, as
+# L<Dist::Zilla::Role::BeforeRelease> asks.
+# @returns nothing
+# @throws  by log_fatal when no commit since the last release has a trailer, or
+#   when this plugin is below C<[Git::Commit]> in F<dist.ini>
+# @example $plugin->before_release;
 sub before_release {
     my ($self) = @_;
     $self->log_fatal( [ 'no %s trailers in the commits since the last release', $self->trailer ] )
@@ -269,8 +270,16 @@ sub before_release {
 
 =method after_release
 
-Write F<Changes> of the build to the repository.  If the plugin made it, run
+Write F<Changes> of the build to the repository, as
+L<Dist::Zilla::Role::AfterRelease> asks.  If the plugin made it, run
 C<git add --intent-to-add> on it, so that C<[Git::Commit]> commits it.
+
+Returns nothing.
+
+Dies when F<Changes> cannot be written, and with a Git::Wrapper::Exception when
+git add fails.
+
+    $plugin->after_release;
 
 =cut
 
@@ -278,7 +287,7 @@ sub after_release {
     my ($self) = @_;
     return unless defined $self->_changes;
 
-    my $file    = first { $_->name eq $self->filename } @{ $self->zilla->files };
+    my $file    = $self->_changes_file;
     my $iolayer = sprintf ':raw:encoding(%s)', $file->encoding;
     $self->log_debug( [ 'updating contents of %s on disk', $self->update_filename ] );
     my $changes = $self->zilla->root->child( $self->update_filename );
