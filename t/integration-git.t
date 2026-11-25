@@ -84,6 +84,29 @@ T2->subtest(
     }
 );
 
+# GitHub's squash merge moves the Co-authored-by trailers of a pull request
+# into a paragraph of their own at the end, and joins the messages of its
+# commits into one body.  So the Changelog trailers of the pull request are in
+# a paragraph that is not the last one.
+T2->subtest(
+    'trailers that a squash merge left in an earlier paragraph still go in, and prose does not' => sub {
+        my ( $tzil, $git ) = dist( plugins => \@BASIC, changes => $PREAMBLE );
+        commit( $git, "One commit (#1)\n\nWhy.\n\nChangelog: First change\n  that wraps\n\nCo-authored-by: A. Tester <tester\@test.test>" );
+        commit(
+            $git,
+            "Two commits (#2)\n\n* The first\n\nWhy the first.\n\nChangelog: Second change\n\n* The second\n\nWhy the second.\n\nchangelog: Third change\nSigned-off-by: A. Tester <tester\@test.test>\n\nCo-authored-by: A. Tester <tester\@test.test>"
+        );
+        commit( $git, "Prose (#3)\n\nThe release writes its entry from the\nChangelog: trailers of the commits since the tag.\n\nCo-authored-by: A. Tester <tester\@test.test>" );
+
+        $tzil->build;
+        T2->is(
+            $tzil->slurp_file(q{build/Changes}),
+            $PREAMBLE . header($tzil) . "\n    - First change that wraps\n    - Second change\n    - Third change\n",
+            'a paragraph of trailers anywhere in the message counts, and a line of prose that starts with the key does not'
+        );
+    }
+);
+
 T2->subtest(
     'only the commits after the last release tag count' => sub {
         my $old = "0.001 2026-01-01\n    - Old change\n";

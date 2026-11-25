@@ -13,7 +13,7 @@ with 'Dist::Zilla::Role::FileGatherer', 'Dist::Zilla::Role::BeforeRelease';
 
 use Dist::Zilla::File::InMemory ();
 use Git::Wrapper                ();
-use List::Util                  qw{first max uniq};
+use List::Util                  qw{any first max uniq};
 use version                     ();
 use namespace::autoclean;    ## no critic (ProhibitUnusedImports) loaded for its effect, which removes the imports from the class
 
@@ -39,7 +39,8 @@ messages do not.
 
 This plugin reads the C<Changelog> trailers of the commits since the last
 release tag.  A trailer is a C<Key: value> line in the last paragraph of a
-commit message, as L<git-interpret-trailers(1)> describes.  The plugin writes
+commit message, as L<git-interpret-trailers(1)> describes, or in any other
+paragraph that holds only trailers.  The plugin writes
 one entry for the trailers at the top of F<Changes> in the build.  When the
 release succeeds, it writes the same entry to F<Changes> in the repository, so
 that C<[Git::Commit]> commits it with the release.
@@ -65,7 +66,16 @@ The value of each trailer is the text of one item, so a commit can have more
 than one.  The key does not depend on case.  A trailer that continues on the
 next line is joined into one line.
 
-The items are in the order of their commits, the oldest first.  A value that
+git reads trailers only from the last paragraph, but a squash merge on GitHub
+leaves them in an earlier one.  It moves each C<Co-authored-by> trailer of the
+pull request into a paragraph of its own at the end, and it joins the messages
+of the commits of the pull request into one body.  So the plugin also reads
+each paragraph whose first line is a trailer, and whose every line is a trailer
+or continues the one above it with leading whitespace.  A paragraph of prose
+counts for nothing, although one of its lines starts with the key.
+
+The items are in the order of their commits, the oldest first, and in the
+order of the message within a commit.  A value that
 is the same as an earlier one is left out, so a merge commit can repeat the
 trailers of its branch.  A commit with no trailer adds nothing.
 
@@ -182,13 +192,52 @@ sub items {
     my $tag = $self->last_release_tag;
     my $key = $self->trailer;
 
-    # Git::Wrapper refuses --format in log, so RUN gives the raw lines: one value
-    # to a line, and an empty line for a commit with no trailer.
-    my @values = $git->RUN(
-        log => { reverse => 1, format => "%(trailers:key=$key,valueonly,unfold)" },
+    # Git::Wrapper refuses --format in log, so RUN gives the raw lines.  Each
+    # commit starts with a record separator, and a unit separator divides the
+    # trailers that git reads from the whole message.
+    my $log = join "\n", $git->RUN(
+        log => { reverse => 1, format => "%x1e%(trailers:key=$key,valueonly,unfold)%x1f%B" },
         defined $tag ? "$tag..HEAD" : 'HEAD',
     );
+    my @values;
+    foreach my $commit ( grep { $_ ne q{} } split /\x1e/, $log ) {
+        my ( $trailers, $message ) = split /\x1f/, $commit, 2;
+        push @values, $self->trailers_in( $message // q{} ), split /\n/, $trailers;
+    }
     return uniq grep { $_ ne q{} } map { s/^\s+//r =~ s/\s+\z//r } @values;
+}
+
+# The values of the trailers of L</trailer> in each paragraph of the commit
+# message C<$message> that is a block of trailers, in their order.  A paragraph
+# is such a block when its first line is a trailer, and each line after it is a
+# trailer or continues the one above it with leading whitespace.  A continued
+# trailer is joined into one line.  git reads trailers only from the last
+# paragraph, so this finds those that a squash merge left above it.
+# @param   message  Str  the whole commit message
+# @returns Str  the values, as a list
+# @example my @values = $plugin->trailers_in("Subject\n\nChangelog: A change\n\nCo-authored-by: A. Tester <tester\@test.test>");
+sub trailers_in {
+    my ( $self, $message ) = @_;
+    my $key = lc $self->trailer;
+    my @values;
+    foreach my $paragraph ( split /\n[ \t]*\n/, $message ) {
+        my @lines = grep { $_ ne q{} } split /\n/, $paragraph;
+        next if !@lines || $lines[0] !~ m/\A[[:alnum:]][[:alnum:]-]*\s*:/;
+        next if any { !m/\A(?:[[:alnum:]][[:alnum:]-]*\s*:|\s+\S)/ } @lines;
+        my @trailers;
+        foreach my $line (@lines) {
+            if ( $line =~ m/\A\s/ ) {
+                $trailers[-1] .= q{ } . ( $line =~ s/\A\s+//r );
+                next;
+            }
+            push @trailers, $line;
+        }
+        foreach my $trailer (@trailers) {
+            my ( $name, $value ) = $trailer =~ m/\A([[:alnum:]][[:alnum:]-]*)\s*:\s*(.*)\z/;
+            push @values, $value if lc $name eq $key;
+        }
+    }
+    return @values;
 }
 
 # Add an empty F<Changes> to the build if the repository has none, as
