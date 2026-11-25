@@ -6,3 +6,9 @@ runtime:
     perl: '5.020'
     # uniq arrived in 1.45, and perl 5.20 ships 1.38.
     List::Util: '1.45'
+develop:
+  requires:
+    # t/integration-git.t, which runs only under RELEASE_TESTING, names
+    # [Git::Commit] in the dist.ini that it builds.  [AutoPrereqs] cannot see a
+    # plugin that only a dist.ini names.
+    Dist::Zilla::Plugin::Git::Commit: '0'
