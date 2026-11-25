@@ -214,6 +214,15 @@ sub gather_files {
     return;
 }
 
+sub _changes_file {
+    my ($self) = @_;
+    my $name = $self->filename;
+    foreach my $file ( @{ $self->zilla->files } ) {
+        return $file if $file->name eq $name;
+    }
+    return;
+}
+
 sub _build_entry {
     my ($self) = @_;
     my @items = $self->items;
@@ -230,7 +239,7 @@ it as it is.
 
 sub munge_files {
     my ($self) = @_;
-    my $file = first { $_->name eq $self->filename } @{ $self->zilla->files };
+    my $file = $self->_changes_file;
     $self->log_fatal( [ 'failed to find %s in the distribution', $self->filename ] ) unless $file;
 
     my $entry = $self->_entry;
@@ -278,7 +287,7 @@ sub after_release {
     my ($self) = @_;
     return unless defined $self->_changes;
 
-    my $file    = first { $_->name eq $self->filename } @{ $self->zilla->files };
+    my $file    = $self->_changes_file;
     my $iolayer = sprintf ':raw:encoding(%s)', $file->encoding;
     $self->log_debug( [ 'updating contents of %s on disk', $self->update_filename ] );
     my $changes = $self->zilla->root->child( $self->update_filename );
