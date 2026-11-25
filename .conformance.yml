@@ -12,3 +12,9 @@ variables:
   CPAN_ID: TEODESIAN
   DATE: '2026-11-20'
   PERL_FLOOR: '5.020'
+checks:
+  DistIni:
+    overrides:
+      # The SYNOPSIS is dist.ini and shell, so there is no perl in it to compile.
+      '@TestingMania':
+        disable: [ Test::Portability, Test::Synopsis, PodCoverageTests ]

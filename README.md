@@ -4,7 +4,7 @@ Dist::Zilla::Plugin::Git::ChangelogFromTrailers - Build the Changes entry for a 
 
 # VERSION
 
-version 0.001
+version 0.002
 
 # SYNOPSIS
 
@@ -32,7 +32,8 @@ messages do not.
 
 This plugin reads the `Changelog` trailers of the commits since the last
 release tag.  A trailer is a `Key: value` line in the last paragraph of a
-commit message, as [git-interpret-trailers(1)](http://man.he.net/man1/git-interpret-trailers) describes.  The plugin writes
+commit message, as [git-interpret-trailers(1)](http://man.he.net/man1/git-interpret-trailers) describes, or in any other
+paragraph that holds only trailers.  The plugin writes
 one entry for the trailers at the top of `Changes` in the build.  When the
 release succeeds, it writes the same entry to `Changes` in the repository, so
 that `[Git::Commit]` commits it with the release.
@@ -58,7 +59,16 @@ The value of each trailer is the text of one item, so a commit can have more
 than one.  The key does not depend on case.  A trailer that continues on the
 next line is joined into one line.
 
-The items are in the order of their commits, the oldest first.  A value that
+git reads trailers only from the last paragraph, but a squash merge on GitHub
+leaves them in an earlier one.  It moves each `Co-authored-by` trailer of the
+pull request into a paragraph of its own at the end, and it joins the messages
+of the commits of the pull request into one body.  So the plugin also reads
+each paragraph whose first line is a trailer, and whose every line is a trailer
+or continues the one above it with leading whitespace.  A paragraph of prose
+counts for nothing, although one of its lines starts with the key.
+
+The items are in the order of their commits, the oldest first, and in the
+order of the message within a commit.  A value that
 is the same as an earlier one is left out, so a merge commit can repeat the
 trailers of its branch.  A commit with no trailer adds nothing.
 
@@ -99,33 +109,90 @@ is the version.  The default matches `1.002` and `v1.002`.
 
 # METHODS
 
-## last\_release\_tag
+## after\_release
 
-Return the name of the last release tag, or undef if there is none.
+Write `Changes` of the build to the repository, as
+[Dist::Zilla::Role::AfterRelease](https://metacpan.org/pod/Dist%3A%3AZilla%3A%3ARole%3A%3AAfterRelease) asks.  If the plugin made it, run
+`git add --intent-to-add` on it, so that `[Git::Commit]` commits it.
 
-## items
+Returns nothing.
 
-Return the values of the trailers in the commits since the last release tag, in
-the order that ["Trailers"](#trailers) describes.
+Dies when `Changes` cannot be written, and with a Git::Wrapper::Exception when
+git add fails.
 
-## gather\_files
-
-Add an empty `Changes` to the build if the repository has none.
-
-## munge\_files
-
-Add the entry to `Changes` in the build.  If no commit has a trailer, leave
-it as it is.
+```
+$plugin->after_release;
+```
 
 ## before\_release
 
-Stop the release if no commit since the last release has a trailer, or if this
-plugin is below `[Git::Commit]` in `dist.ini`.
+Check that the release can write its entry, as [Dist::Zilla::Role::BeforeRelease](https://metacpan.org/pod/Dist%3A%3AZilla%3A%3ARole%3A%3ABeforeRelease) asks.
 
-## after\_release
+Returns nothing.
 
-Write `Changes` of the build to the repository.  If the plugin made it, run
-`git add --intent-to-add` on it, so that `[Git::Commit]` commits it.
+Dies by log\_fatal when no commit since the last release has a trailer, or when this plugin is below `[Git::Commit]` in `dist.ini`.
+
+```
+$plugin->before_release;
+```
+
+## gather\_files
+
+Add an empty `Changes` to the build if the repository has none, as [Dist::Zilla::Role::FileGatherer](https://metacpan.org/pod/Dist%3A%3AZilla%3A%3ARole%3A%3AFileGatherer) asks.
+
+Returns nothing.
+
+```
+$plugin->gather_files;
+```
+
+## items
+
+The values of the trailers in the commits since the last release tag, in the order that ["Trailers"](#trailers) describes.  Nothing when the repository has no commit.
+
+Returns Str, the values, as a list.
+
+Dies with a Git::Wrapper::Exception when git tag or git log fails.
+
+```perl
+my @items = $plugin->items;
+```
+
+## last\_release\_tag
+
+The name of the last release tag: of the tags that are reachable from HEAD and match version\_regexp, the one with the highest version.
+
+Returns Str or Undef, the name of the tag, or undef if no tag matches.
+
+Dies with a Git::Wrapper::Exception when git tag fails.
+
+```perl
+my $tag = $plugin->last_release_tag;
+```
+
+## munge\_files
+
+Add the entry to `Changes` in the build, as [Dist::Zilla::Role::FileMunger](https://metacpan.org/pod/Dist%3A%3AZilla%3A%3ARole%3A%3AFileMunger) asks.  If no commit has a trailer, leave it as it is.
+
+Returns nothing.
+
+Dies by log\_fatal when the build has no `Changes`.
+
+```
+$plugin->munge_files;
+```
+
+## trailers\_in(message)
+
+The values of the trailers of ["trailer"](#trailer) in each paragraph of the commit message `$message` that is a block of trailers, in their order.  A paragraph is such a block when its first line is a trailer, and each line after it is a trailer or continues the one above it with leading whitespace.  A continued trailer is joined into one line.  git reads trailers only from the last paragraph, so this finds those that a squash merge left above it.
+
+- message - Str - the whole commit message
+
+Returns Str, the values, as a list.
+
+```perl
+my @values = $plugin->trailers_in("Subject\n\nChangelog: A change\n\nCo-authored-by: A. Tester <tester\@test.test>");
+```
 
 # SEE ALSO
 
@@ -150,6 +217,11 @@ feature.
 Current Maintainers:
 
 - George S. Baugh <george@troglodyne.net>
+
+# CONTRIBUTORS
+
+- troglodyne-bot <troglodyne-bot@users.noreply.github.com>
+- troglodyne-robot <trogbot@troglodyne.net>
 
 # COPYRIGHT AND LICENSE
 
